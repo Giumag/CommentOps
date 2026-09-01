@@ -89,8 +89,8 @@ with st.sidebar:
 if uploaded:
     df = pd.read_csv(uploaded)
 else:
-    df = pd.read_csv("data/demo_comments.csv")
-    st.info("Using the built-in demo dataset. Upload a CSV to analyze your own comments.")
+    df = pd.read_csv("data/demo_comments_120.csv")
+    st.info("Using a built-in synthetic 120-comment demo dataset. Upload a CSV to analyze your own comments.")
 
 if df.empty:
     st.warning("The dataset is empty.")
@@ -368,3 +368,4 @@ INPUT:
                 file_name="commentops_ai_action_plans.json",
                 mime="application/json",
             )
+
