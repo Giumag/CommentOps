@@ -1,0 +1,121 @@
+comment,likes,demo_topic
+Worked perfectly for me,7,positive
+How do I test this properly?,93,testing
+Can you fix the login issue after reset?,20,login_bug
+Worked perfectly for me,51,positive
+This was super helpful,65,positive
+Can you explain the Windows setup?,60,windows_install
+Excellent breakdown,50,positive
+How do I get this running on Windows?,142,windows_install
+"Docker is using 6GB of RAM, is that normal?",154,docker_ram
+Can you explain the Mac setup?,140,mac_install
+Buy followers now https://example.com,4,spam
+Buy followers now https://example.com,0,spam
+This was super helpful,87,positive
+I reset my password and now authentication fails,161,login_bug
+Login doesn't work after I reset my password,99,login_bug
+Why can't I sign in after a password reset?,78,login_bug
+How should I write tests for this?,96,testing
+My Docker setup consumes a lot of memory,132,docker_ram
+Best tutorial I've seen on this,71,positive
+Check my channel https://example.com,5,spam
+Why does export crash every time?,142,export_crash
+Excellent breakdown,18,positive
+Check my channel https://example.com,5,spam
+I don't understand the database relationships,77,database
+Authentication breaks after password reset,52,login_bug
+Password reset worked but login is broken,144,login_bug
+Check my channel https://example.com,5,spam
+Awesome explanation,77,positive
+Can you show how to install this on Windows 11?,31,windows_install
+Export keeps crashing the application,169,export_crash
+Excellent breakdown,48,positive
+Check my channel https://example.com,5,spam
+Check out my page www.example.com,4,spam
+A tutorial on deployment would be really useful,42,deployment
+The app crashes when I export,53,export_crash
+Please make a video about unit tests,168,testing
+Can you explain how to deploy the app?,89,deployment
+I can't figure out the Windows installation,38,windows_install
+Why is Docker eating all my memory?,111,docker_ram
+Export is broken for me,59,export_crash
+Would love a Mac install tutorial,34,mac_install
+Would love a testing walkthrough,56,testing
+This saved me so much time,33,positive
+Can you make a macOS setup guide?,157,mac_install
+How can I get this from localhost to production?,58,deployment
+Best tutorial I've seen on this,20,positive
+Please make a deployment guide,74,deployment
+Docker RAM usage is huge on my laptop,11,docker_ram
+Can you show how you test this project?,177,testing
+Does this work on Mac?,94,mac_install
+Is high Docker RAM usage expected?,62,docker_ram
+This saved me so much time,28,positive
+How do I deploy this project?,111,deployment
+Please cover testing in another video,97,testing
+Best tutorial I've seen on this,4,positive
+Please explain the database design,62,database
+How does the database schema work?,172,database
+Excellent breakdown,11,positive
+"Windows installation keeps confusing me, can you make a guide?",73,windows_install
+How do I install this on macOS?,100,mac_install
+How can I get this running on macOS?,70,mac_install
+Do you have Windows install steps?,65,windows_install
+Check my channel https://example.com,3,spam
+Best tutorial I've seen on this,72,positive
+My export keeps failing and crashing,74,export_crash
+"Great video, thanks!",14,positive
+I need help installing this on a MacBook,91,mac_install
+Worked perfectly for me,27,positive
+Can you fix the export crash?,153,export_crash
+Would love a video on deploying this,43,deployment
+Why does Docker memory usage stay so high?,26,docker_ram
+The login page rejects my new password,150,login_bug
+Can you show the database schema?,28,database
+Can't sign in anymore after changing my password,95,login_bug
+"Promo available, message me",2,spam
+I can't log in after changing my password,23,login_bug
+Check out my page www.example.com,4,spam
+Buy followers now https://example.com,3,spam
+Buy followers now https://example.com,4,spam
+The export button causes a crash,117,export_crash
+Login keeps failing after I reset the password,163,login_bug
+DM me for promotion,3,spam
+DM me for promotion,4,spam
+Can you show the deployment process?,90,deployment
+"Export doesn't work for me, it crashes",146,export_crash
+Can you make a tutorial about testing this project?,165,testing
+Can you explain how the database is structured?,14,database
+"Really clear explanation, thank you",81,positive
+"Really clear explanation, thank you",8,positive
+Docker keeps using too much RAM,58,docker_ram
+How should I set up the database for this?,74,database
+Is there a Windows 11 installation guide?,176,windows_install
+This was super helpful,80,positive
+"Really clear explanation, thank you",17,positive
+Why does Docker use so much RAM?,25,docker_ram
+Can you show unit testing for this app?,44,testing
+Please keep making videos like this,51,positive
+Would love a proper Windows install tutorial,29,windows_install
+Can you make a tutorial about deployment?,4,deployment
+Do you have a step by step deployment tutorial?,26,deployment
+Mac installation isn't clear to me,14,mac_install
+How can I reduce Docker RAM usage?,10,docker_ram
+How can I install it on Windows?,9,windows_install
+Can you make a video about the database?,61,database
+Can you show the Mac installation steps?,27,mac_install
+Can you explain the test setup?,174,testing
+How do I install this on Windows?,166,windows_install
+A database architecture walkthrough would help,100,database
+Worked perfectly for me,28,positive
+Can you explain the database model?,119,database
+This crashes every time I press export,9,export_crash
+Please keep making videos like this,54,positive
+Do you have Apple Silicon installation steps?,120,mac_install
+Can you explain Docker RAM usage?,157,docker_ram
+I get a crash as soon as I click export,110,export_crash
+How do I add automated tests?,71,testing
+How are these database tables connected?,23,database
+This was super helpful,68,positive
+Check out my page www.example.com,4,spam
+Please cover deployment in the next video,29,deployment
