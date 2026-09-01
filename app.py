@@ -1,4 +1,5 @@
 import json
+import os
 
 import pandas as pd
 import streamlit as st
@@ -6,6 +7,7 @@ import streamlit as st
 from src.analyzer import classify_comment
 from src.clustering import group_similar_comments
 from src.scoring import demand_score
+from src.youtube import YouTubeAPIError, fetch_youtube_video
 
 
 st.set_page_config(page_title="CommentOps", page_icon="💬", layout="wide")
@@ -50,31 +52,126 @@ st.markdown(
 
 if "manual_ai_plans" not in st.session_state:
     st.session_state.manual_ai_plans = {}
+if "youtube_df" not in st.session_state:
+    st.session_state.youtube_df = None
+if "youtube_meta" not in st.session_state:
+    st.session_state.youtube_meta = None
+if "youtube_url" not in st.session_state:
+    st.session_state.youtube_url = ""
+
+
+def get_youtube_api_key() -> str | None:
+    env_key = os.getenv("YOUTUBE_API_KEY")
+    if env_key:
+        return env_key
+
+    try:
+        return st.secrets["YOUTUBE_API_KEY"]
+    except (FileNotFoundError, KeyError):
+        return None
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_youtube_fetch(
+    video_url: str,
+    api_key: str,
+    max_comments: int,
+    sampling: str,
+):
+    return fetch_youtube_video(
+        video_url,
+        api_key,
+        max_comments=max_comments,
+        sampling=sampling,
+    )
+
 
 st.markdown(
     """
     <div class="hero">
       <h1>CommentOps</h1>
-      <p>Turn audience noise into a prioritized creator action plan.</p>
+      <p><strong>Your audience already wrote your roadmap. We find it.</strong></p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    st.header("Input")
-    uploaded = st.file_uploader("Upload a CSV", type=["csv"])
-    st.caption("Expected: a comment/text column. Optional: likes.")
+st.markdown("### Analyze a YouTube audience")
+youtube_url = st.text_input(
+    "YouTube video URL",
+    placeholder="https://www.youtube.com/watch?v=...",
+    label_visibility="collapsed",
+)
 
-    st.divider()
-    st.header("ChatGPT mode")
+c1, c2, c3 = st.columns([1, 1.25, 1])
+with c1:
+    max_comments = st.selectbox(
+        "Comments",
+        options=[100, 300, 500],
+        index=1,
+        help="Maximum number of unique top-level comments to analyze.",
+    )
+with c2:
+    sampling_label = st.radio(
+        "Sampling",
+        options=["Balanced", "Top", "Latest"],
+        horizontal=True,
+        help="Balanced mixes YouTube relevance with recent comments and removes duplicates.",
+    )
+with c3:
+    st.write("")
+    st.write("")
+    analyze_youtube = st.button(
+        "Analyze audience →",
+        type="primary",
+        use_container_width=True,
+    )
+
+youtube_key = get_youtube_api_key()
+
+if analyze_youtube:
+    if not youtube_url.strip():
+        st.error("Paste a YouTube video URL first.")
+    elif not youtube_key:
+        st.error(
+            "YouTube live analysis is not configured yet. "
+            "Set YOUTUBE_API_KEY locally or in Streamlit Secrets."
+        )
+    else:
+        try:
+            with st.spinner("Reading the public YouTube conversation..."):
+                yt_df, yt_meta = cached_youtube_fetch(
+                    youtube_url.strip(),
+                    youtube_key,
+                    max_comments,
+                    sampling_label.lower(),
+                )
+            st.session_state.youtube_df = yt_df
+            st.session_state.youtube_meta = yt_meta
+            st.session_state.youtube_url = youtube_url.strip()
+            st.session_state.manual_ai_plans = {}
+        except (ValueError, YouTubeAPIError) as exc:
+            st.error(str(exc))
+
+with st.expander("Or upload a CSV"):
+    uploaded = st.file_uploader(
+        "Upload comment export",
+        type=["csv"],
+        help="Expected comment/text column. Likes are optional.",
+    )
+
+with st.sidebar:
+    st.header("Analysis settings")
     creator_context = st.text_area(
         "Channel context (optional)",
         placeholder="Example: Python tutorials for beginner developers",
         height=90,
     )
-    st.success("Zero-API mode")
-    st.caption("No API key. No API charges.")
+
+    st.divider()
+    st.caption("AI bridge")
+    st.success("Zero-paid-API mode")
+    st.caption("AI action plans can still be imported from ChatGPT.")
 
     st.divider()
     minutes_per_reply = st.slider(
@@ -86,14 +183,49 @@ with st.sidebar:
         help="Used only for the time-saved estimate shown in the demo.",
     )
 
-if uploaded:
+    if st.session_state.youtube_df is not None:
+        if st.button("Return to demo dataset", use_container_width=True):
+            st.session_state.youtube_df = None
+            st.session_state.youtube_meta = None
+            st.session_state.youtube_url = ""
+            st.session_state.manual_ai_plans = {}
+            st.rerun()
+
+source_label = "Synthetic demo"
+
+if st.session_state.youtube_df is not None:
+    df = st.session_state.youtube_df.copy()
+    meta = st.session_state.youtube_meta
+    source_label = "Live YouTube"
+
+    st.success(
+        f'Live YouTube · "{meta.title}" · {meta.channel_title} · '
+        f'{len(df)} public top-level comments loaded'
+    )
+
+    metadata_cols = st.columns(3)
+    metadata_cols[0].metric("Loaded comments", len(df))
+    metadata_cols[1].metric(
+        "Public comments on video",
+        meta.public_comment_count if meta.public_comment_count is not None else "—",
+    )
+    metadata_cols[2].metric("Sampling", sampling_label)
+
+elif uploaded is not None:
     df = pd.read_csv(uploaded)
+    source_label = "CSV upload"
+    st.session_state.manual_ai_plans = {}
+    st.info("Using your uploaded CSV.")
+
 else:
     df = pd.read_csv("data/demo_comments_120.csv")
-    st.info("Using a built-in synthetic 120-comment demo dataset. Upload a CSV to analyze your own comments.")
+    st.info(
+        "Synthetic demo · 120 comments. "
+        "Paste a YouTube URL above to analyze a real public conversation."
+    )
 
 if df.empty:
-    st.warning("The dataset is empty.")
+    st.warning("No comments were available for analysis.")
     st.stop()
 
 lower_cols = {c.lower(): c for c in df.columns}
@@ -168,7 +300,7 @@ m3.metric("Audience needs", topic_count)
 m4.metric("Est. time saved", f"{estimated_minutes_saved:.0f} min")
 
 st.caption(
-    f"Estimate assumes {minutes_per_reply:g} minutes per manual reply. "
+    f"{source_label}. Estimate assumes {minutes_per_reply:g} minutes per manual reply. "
     f"CommentOps reduces {actionable_count} individual reply decisions to {topic_count} grouped needs."
 )
 
@@ -192,13 +324,17 @@ if not cluster_df.empty:
             )
 
 st.divider()
-tab1, tab2 = st.tabs(["Action queue", "Reply once"])
+tab1, tab2 = st.tabs(["Action queue", "Audience needs"])
 
 with tab1:
-    queue = df.sort_values(["priority", "likes"], ascending=False)[
-        ["comment", "category", "priority", "likes", "reason"]
-    ]
+    display_columns = ["comment", "category", "priority", "likes", "reason"]
+    for optional in ("published_at", "reply_count"):
+        if optional in df.columns:
+            display_columns.append(optional)
+
+    queue = df.sort_values(["priority", "likes"], ascending=False)[display_columns]
     st.dataframe(queue, use_container_width=True, hide_index=True)
+
     csv = queue.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download prioritized inbox",
@@ -209,7 +345,7 @@ with tab1:
 
 with tab2:
     if cluster_df.empty:
-        st.write("No recurring actionable topics detected.")
+        st.write("No recurring actionable audience needs detected.")
     else:
         prompt_clusters = []
         for _, row in cluster_df.head(6).iterrows():
@@ -225,6 +361,7 @@ with tab2:
 
         prompt_payload = {
             "creator_context": creator_context.strip(),
+            "source": source_label,
             "clusters": prompt_clusters,
         }
 
@@ -262,7 +399,7 @@ INPUT:
 {json.dumps(prompt_payload, ensure_ascii=False, indent=2)}
 """.strip()
 
-        with st.expander("ChatGPT bridge — zero API cost"):
+        with st.expander("ChatGPT bridge — optional AI enhancement"):
             st.write("Copy the prompt into ChatGPT, then paste the returned JSON below.")
             st.text_area("Prompt for ChatGPT", value=prompt_text, height=300)
             ai_json = st.text_area(
@@ -354,12 +491,13 @@ INPUT:
                         )
                 else:
                     st.info(
-                        "Import a ChatGPT action plan to generate the reply, pinned comment, and content opportunity."
+                        "Use the optional ChatGPT bridge to turn this audience need "
+                        "into a reply, pinned comment, and content opportunity."
                     )
 
         if st.session_state.manual_ai_plans:
             export_payload = {
-                "generated_with": "ChatGPT bridge (zero API mode)",
+                "generated_with": "ChatGPT bridge",
                 "plans": list(st.session_state.manual_ai_plans.values()),
             }
             st.download_button(
@@ -368,4 +506,3 @@ INPUT:
                 file_name="commentops_ai_action_plans.json",
                 mime="application/json",
             )
-
