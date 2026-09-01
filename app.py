@@ -5,8 +5,10 @@ import pandas as pd
 import streamlit as st
 
 from src.analyzer import classify_comment
+from src.backlog import route_audience_need
 from src.clustering import group_similar_comments
-from src.scoring import demand_score
+from src.exporters import backlog_to_csv, backlog_to_markdown
+from src.scoring import demand_breakdown
 from src.youtube import YouTubeAPIError, fetch_youtube_video
 
 
@@ -28,7 +30,7 @@ st.markdown(
         border: 1px solid rgba(120,120,120,.25);
         border-radius: 14px;
         padding: 1rem;
-        min-height: 120px;
+        min-height: 135px;
     }
     .mini-card .eyebrow {
         font-size: .78rem;
@@ -37,8 +39,17 @@ st.markdown(
         letter-spacing: .06em;
         margin-bottom: .35rem;
     }
-    .mini-card .big { font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
+    .mini-card .big { font-size: 1.25rem; font-weight: 700; line-height: 1.18; }
     .mini-card .sub { margin-top: .45rem; opacity: .72; font-size: .9rem; }
+    .route-pill {
+        display: inline-block;
+        border: 1px solid rgba(120,120,120,.35);
+        border-radius: 999px;
+        padding: .18rem .55rem;
+        font-size: .76rem;
+        margin-right: .35rem;
+        opacity: .9;
+    }
     .plan-box {
         border: 1px solid rgba(120,120,120,.25);
         border-radius: 14px;
@@ -50,14 +61,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if "manual_ai_plans" not in st.session_state:
-    st.session_state.manual_ai_plans = {}
-if "youtube_df" not in st.session_state:
-    st.session_state.youtube_df = None
-if "youtube_meta" not in st.session_state:
-    st.session_state.youtube_meta = None
-if "youtube_url" not in st.session_state:
-    st.session_state.youtube_url = ""
+for key, default in (
+    ("manual_ai_plans", {}),
+    ("youtube_df", None),
+    ("youtube_meta", None),
+    ("youtube_url", ""),
+):
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
 def get_youtube_api_key() -> str | None:
@@ -169,9 +180,9 @@ with st.sidebar:
     )
 
     st.divider()
-    st.caption("AI bridge")
-    st.success("Zero-paid-API mode")
-    st.caption("AI action plans can still be imported from ChatGPT.")
+    st.caption("AI enhancement")
+    st.success("Human-reviewed AI bridge")
+    st.caption("Action plans can be imported from ChatGPT.")
 
     st.divider()
     minutes_per_reply = st.slider(
@@ -180,7 +191,7 @@ with st.sidebar:
         max_value=5.0,
         value=2.5,
         step=0.5,
-        help="Used only for the time-saved estimate shown in the demo.",
+        help="Used only for the time-saved estimate.",
     )
 
     if st.session_state.youtube_df is not None:
@@ -242,6 +253,10 @@ likes_col = next(
     (lower_cols[k] for k in ("likes", "like_count", "votes") if k in lower_cols),
     None,
 )
+published_col = next(
+    (lower_cols[k] for k in ("published_at", "published", "created_at", "timestamp") if k in lower_cols),
+    None,
+)
 
 df = df.copy()
 df["comment"] = df[comment_col].fillna("").astype(str)
@@ -261,30 +276,76 @@ actionable["cluster_id"] = group_similar_comments(actionable["comment"].tolist()
 
 clusters = []
 cluster_members = {}
+backlog = []
 
 if not actionable.empty:
     for cluster_id, group in actionable.groupby("cluster_id"):
         avg_priority = float(group["priority"].mean())
         total_likes = int(group["likes"].sum())
-        score = demand_score(len(group), total_likes, avg_priority)
         members = group["comment"].tolist()
+
+        dates = group[published_col].tolist() if published_col and published_col in group else None
+        score_parts = demand_breakdown(
+            len(group),
+            total_likes,
+            avg_priority,
+            dates,
+        )
+
+        representative = group.sort_values(
+            ["priority", "likes"], ascending=False
+        ).iloc[0]["comment"]
+
+        route = route_audience_need(
+            members,
+            avg_priority=avg_priority,
+            cluster_size=len(group),
+            demand_score=score_parts.score,
+        )
+
         cluster_members[int(cluster_id)] = members
-        clusters.append(
+
+        cluster = {
+            "cluster_id": int(cluster_id),
+            "representative": representative,
+            "count": len(group),
+            "likes": total_likes,
+            "avg_priority": round(avg_priority, 1),
+            "demand_score": score_parts.score,
+            "score_parts": score_parts,
+            "work_type": route.work_type,
+            "priority_band": route.priority_band,
+            "recommended_action": route.action,
+            "route_rationale": route.rationale,
+        }
+        clusters.append(cluster)
+
+        backlog.append(
             {
-                "cluster_id": int(cluster_id),
-                "representative": group.sort_values(
-                    ["priority", "likes"], ascending=False
-                ).iloc[0]["comment"],
-                "count": len(group),
+                "priority": route.priority_band,
+                "type": route.work_type,
+                "need": representative,
+                "demand_score": score_parts.score,
+                "comments": len(group),
                 "likes": total_likes,
-                "avg_priority": round(avg_priority, 1),
-                "demand_score": score,
+                "recommended_action": route.action,
+                "rationale": route.rationale,
             }
         )
 
-cluster_df = pd.DataFrame(clusters)
+cluster_df = pd.DataFrame(
+    [{k: v for k, v in item.items() if k != "score_parts"} for item in clusters]
+)
+
 if not cluster_df.empty:
-    cluster_df = cluster_df.sort_values("demand_score", ascending=False)
+    priority_sort = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    cluster_df["_priority_sort"] = cluster_df["priority_band"].map(priority_sort).fillna(9)
+    cluster_df = cluster_df.sort_values(
+        ["_priority_sort", "demand_score", "likes"],
+        ascending=[True, False, False],
+    ).drop(columns=["_priority_sort"])
+
+cluster_lookup = {item["cluster_id"]: item for item in clusters}
 
 actionable_count = int((df["category"] == "reply_now").sum())
 topic_count = len(cluster_df)
@@ -307,26 +368,30 @@ st.caption(
 if not cluster_df.empty:
     top = cluster_df.head(3).reset_index(drop=True)
     cards = st.columns(len(top))
+
     for col, (_, row) in zip(cards, top.iterrows()):
         cid = int(row["cluster_id"])
         plan = st.session_state.manual_ai_plans.get(cid)
         title = plan.get("title") if plan and plan.get("title") else row["representative"]
+
         with col:
             st.markdown(
                 f"""
                 <div class="mini-card">
-                  <div class="eyebrow">Demand {row["demand_score"]}/100 · {row["count"]} comments</div>
+                  <div class="eyebrow">{row["priority_band"]} · {row["work_type"]} · Demand {row["demand_score"]}/100</div>
                   <div class="big">{title}</div>
-                  <div class="sub">{row["likes"]} combined likes</div>
+                  <div class="sub">{row["count"]} comments · {row["likes"]} combined likes</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
 st.divider()
-tab1, tab2 = st.tabs(["Action queue", "Audience needs"])
+tab_queue, tab_needs, tab_backlog, tab_method = st.tabs(
+    ["Action queue", "Audience needs", "Creator backlog", "Methodology"]
+)
 
-with tab1:
+with tab_queue:
     display_columns = ["comment", "category", "priority", "likes", "reason"]
     for optional in ("published_at", "reply_count"):
         if optional in df.columns:
@@ -343,16 +408,18 @@ with tab1:
         mime="text/csv",
     )
 
-with tab2:
+with tab_needs:
     if cluster_df.empty:
         st.write("No recurring actionable audience needs detected.")
     else:
         prompt_clusters = []
-        for _, row in cluster_df.head(6).iterrows():
+        for _, row in cluster_df.head(8).iterrows():
             cid = int(row["cluster_id"])
             prompt_clusters.append(
                 {
                     "cluster_id": cid,
+                    "priority": row["priority_band"],
+                    "work_type": row["work_type"],
                     "demand_score": int(row["demand_score"]),
                     "combined_likes": int(row["likes"]),
                     "comments": cluster_members[cid],
@@ -373,6 +440,7 @@ For each cluster, produce one practical action plan grounded in the evidence.
 
 Rules:
 - Never invent facts about the creator, audience, product, bug resolution, or platform.
+- Respect the work_type and priority supplied by CommentOps unless the evidence clearly contradicts them.
 - If there is not enough information to answer factually, say the creator should investigate or provide more details.
 - Replies should sound natural, concise, and human.
 - Content ideas must be directly supported by the recurring audience need.
@@ -425,22 +493,66 @@ INPUT:
             cluster_id = int(row["cluster_id"])
             members = cluster_members[cluster_id]
             plan = st.session_state.manual_ai_plans.get(cluster_id)
+            cluster = cluster_lookup[cluster_id]
+            parts = cluster["score_parts"]
 
             with st.expander(
-                f'{row["demand_score"]}/100 · {row["count"]} comments · {row["representative"][:90]}'
+                f'{row["priority_band"]} · {row["work_type"]} · '
+                f'{row["demand_score"]}/100 · {row["count"]} comments · '
+                f'{row["representative"][:75]}'
             ):
-                info1, info2, info3 = st.columns(3)
-                info1.metric("Demand", f'{row["demand_score"]}/100')
-                info2.metric("Comments", row["count"])
-                info3.metric("Combined likes", row["likes"])
+                top_left, top_mid, top_right = st.columns(3)
+                top_left.metric("Demand", f'{row["demand_score"]}/100')
+                top_mid.metric("Comments", row["count"])
+                top_right.metric("Combined likes", row["likes"])
 
-                st.markdown("**Evidence from the audience**")
-                for comment in members[:8]:
+                st.markdown(
+                    f'<span class="route-pill">{row["priority_band"]}</span>'
+                    f'<span class="route-pill">{row["work_type"]}</span>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(f'**Recommended action:** {row["recommended_action"]}')
+                st.caption(row["route_rationale"])
+
+                st.markdown("#### Why this ranks here")
+                s1, s2, s3, s4 = st.columns(4)
+
+                with s1:
+                    st.caption("Recurrence")
+                    st.progress(parts.recurrence / parts.recurrence_max)
+                    st.write(f"{parts.recurrence:g} / {parts.recurrence_max}")
+
+                with s2:
+                    st.caption("Engagement")
+                    st.progress(parts.engagement / parts.engagement_max)
+                    st.write(f"{parts.engagement:g} / {parts.engagement_max}")
+
+                with s3:
+                    st.caption("Urgency")
+                    st.progress(parts.urgency / parts.urgency_max)
+                    st.write(f"{parts.urgency:g} / {parts.urgency_max}")
+
+                with s4:
+                    st.caption("Freshness")
+                    if parts.freshness is None:
+                        st.write("N/A")
+                        st.caption("No timestamps")
+                    else:
+                        st.progress(parts.freshness / parts.freshness_max)
+                        st.write(f"{parts.freshness:g} / {parts.freshness_max}")
+
+                if parts.freshness is None:
+                    st.caption(
+                        "Freshness unavailable: score is normalized across recurrence, engagement, and urgency only."
+                    )
+
+                st.markdown("#### Evidence from the audience")
+                for comment in members[:10]:
                     st.write(f"• {comment}")
 
                 if plan:
                     st.divider()
-                    st.markdown("### ChatGPT action plan")
+                    st.markdown("### AI action plan")
                     left, right = st.columns(2)
 
                     with left:
@@ -449,8 +561,6 @@ INPUT:
                             f'<div class="plan-box">{plan.get("summary", "")}</div>',
                             unsafe_allow_html=True,
                         )
-                        st.markdown("**Intent**")
-                        st.write(str(plan.get("intent", "")).replace("_", " ").title())
                         st.markdown("**Recommended action**")
                         st.markdown(
                             f'<div class="plan-box">{plan.get("recommended_action", "")}</div>',
@@ -489,20 +599,103 @@ INPUT:
                             height=110,
                             label_visibility="collapsed",
                         )
-                else:
-                    st.info(
-                        "Use the optional ChatGPT bridge to turn this audience need "
-                        "into a reply, pinned comment, and content opportunity."
-                    )
 
-        if st.session_state.manual_ai_plans:
-            export_payload = {
-                "generated_with": "ChatGPT bridge",
-                "plans": list(st.session_state.manual_ai_plans.values()),
-            }
+with tab_backlog:
+    st.markdown("### Creator Backlog")
+    st.caption(
+        "Audience needs are routed into creator work. Operational failures are intentionally prioritized over content ideas."
+    )
+
+    if not backlog:
+        st.info("No backlog items yet.")
+    else:
+        backlog_frame = pd.DataFrame(backlog)
+        priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+        backlog_frame["_sort"] = backlog_frame["priority"].map(priority_order).fillna(9)
+        backlog_frame = backlog_frame.sort_values(
+            ["_sort", "demand_score"],
+            ascending=[True, False],
+        ).drop(columns=["_sort"])
+
+        type_filter = st.multiselect(
+            "Filter work type",
+            options=["Support", "Documentation", "Content", "Education", "Community"],
+            default=[],
+            placeholder="All work types",
+        )
+
+        visible_backlog = backlog_frame
+        if type_filter:
+            visible_backlog = backlog_frame[backlog_frame["type"].isin(type_filter)]
+
+        st.dataframe(
+            visible_backlog[
+                [
+                    "priority",
+                    "type",
+                    "need",
+                    "demand_score",
+                    "comments",
+                    "likes",
+                    "recommended_action",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        csv_data = backlog_to_csv(backlog)
+        md_data = backlog_to_markdown(backlog)
+
+        dl1, dl2 = st.columns(2)
+        with dl1:
             st.download_button(
-                "Download AI action plans",
-                data=json.dumps(export_payload, ensure_ascii=False, indent=2),
-                file_name="commentops_ai_action_plans.json",
-                mime="application/json",
+                "Export backlog as CSV",
+                data=csv_data,
+                file_name="commentops_creator_backlog.csv",
+                mime="text/csv",
+                use_container_width=True,
             )
+        with dl2:
+            st.download_button(
+                "Export backlog as Markdown",
+                data=md_data,
+                file_name="commentops_creator_backlog.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+
+with tab_method:
+    st.markdown("### How CommentOps prioritizes audience needs")
+    st.write(
+        "CommentOps intentionally separates deterministic prioritization from optional generative AI."
+    )
+
+    st.markdown("**1. Triage**")
+    st.write("Comments are classified into actionable, low-priority, and likely spam.")
+
+    st.markdown("**2. Audience-need grouping**")
+    st.write(
+        "A conservative clustering stage prefers false splits over false merges so unrelated creator work is not collapsed together."
+    )
+
+    st.markdown("**3. Demand Score**")
+    st.write(
+        "Recurrence (35), engagement (25), urgency (25), and—when timestamps exist—freshness (15). "
+        "Engagement uses logarithmic scaling and freshness uses a 45-day half-life rather than a hard cutoff."
+    )
+
+    st.markdown("**4. Work routing**")
+    st.write(
+        "Each recurring need becomes Support, Documentation, Content, Education, or Community work with a P0–P3 priority."
+    )
+
+    st.markdown("**5. Optional AI enhancement**")
+    st.write(
+        "Generative AI can draft replies, pinned comments, and content briefs, but the evidence and prioritization remain visible for human review."
+    )
+
+    st.info(
+        "Demand Score is a prioritization heuristic, not a prediction of future views or creator revenue. "
+        "The time-saved metric is an adjustable estimate."
+    )
